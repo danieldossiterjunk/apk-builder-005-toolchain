@@ -1,0 +1,218 @@
+# APK Builder 005 Stage 0 (approvals D-03 option A and D-04 option A).
+#  1. build AAPT2 from the pinned AOSP source snapshot (aapt2-src release, SHA-256 pinned) for the Linux desktop
+#     (x86_64) and for Android ARM64 (NDK, fully static), with this repository's CMake build (aapt2/);
+#  2. build the Android 17 framework resource table from AOSP core/res with the desktop AAPT2 and check it;
+#  3. run the Android ARM64 AAPT2 on an ARM64 Linux runner: it must build the same table and link the smoke
+#     test project byte-identically to the desktop build;
+#  4. publish binaries, table, link maps and reports as a release with SHA-256 sums and provenance.
+name: aapt2
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aapt2.yml', 'aapt2/**', 'scripts/framework_table.py', 'scripts/aconfig_values.py',
+            'samples/res-smoke/**', 'pins/stage0.env']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aapt2
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  build:
+    name: Build AAPT2 (desktop x86_64 and Android ARM64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned inputs
+        run: grep -E '^[A-Z0-9_]+=' pins/stage0.env >> "$GITHUB_ENV"
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build zstd clang lld file
+          mkdir -p out
+          { cmake --version | head -1; clang --version | head -1; ninja --version; } | tee out/host-tools.txt
+      - name: Source snapshot (pinned SHA-256)
+        run: |
+          curl -fsSL -o src.tar.zst "https://github.com/$GITHUB_REPOSITORY/releases/download/$AAPT2_SRC_RELEASE/aapt2-sources-$AOSP_TAG.tar.zst"
+          echo "$AAPT2_SRC_SHA256  src.tar.zst" | sha256sum -c -
+          mkdir aosp && tar --zstd -xf src.tar.zst -C aosp
+          cp aosp/SOURCES.txt out/SOURCES.txt
+      - name: NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
+          echo "NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          grep Pkg.Revision "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" | tee out/ndk.txt
+      - name: Host protoc (from the snapshot's protobuf)
+        run: |
+          cmake -GNinja -S aapt2/protoc -B build/protoc -DAOSP_SRC=$PWD/aosp/src -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > out/protoc-configure.txt 2>&1 || { tail -50 out/protoc-configure.txt; exit 1; }
+          cmake --build build/protoc --target protoc -j 4 > out/protoc-build.txt 2>&1 || { grep -m20 -B2 -A8 'error' out/protoc-build.txt; exit 1; }
+          build/protoc/protobuf/protoc --version | tee out/protoc-version.txt
+      - name: AAPT2 for the Linux desktop (x86_64)
+        id: host
+        continue-on-error: true
+        run: |
+          cmake -GNinja -S aapt2 -B build/host -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld > out/host-configure.txt 2>&1 || { tail -60 out/host-configure.txt; exit 1; }
+          cmake --build build/host --target aapt2 -j 4 -k 0 > out/host-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/host-build.txt; exit 1; }
+          cp build/host/aapt2 out/aapt2-linux-x86_64
+          python3 -I aapt2/stamp_build_number.py out/aapt2-linux-x86_64 "apkbuilder005-$AOSP_TAG-linux-x86_64"
+          strip out/aapt2-linux-x86_64
+          out/aapt2-linux-x86_64 version | tee out/aapt2-linux-x86_64.version
+      - name: AAPT2 for Android ARM64 (NDK, static)
+        id: android
+        continue-on-error: true
+        run: |
+          cmake -GNinja -S aapt2 -B build/android -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
+            -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static > out/android-configure.txt 2>&1 || { tail -60 out/android-configure.txt; exit 1; }
+          cmake --build build/android --target aapt2 -j 4 -k 0 > out/android-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/android-build.txt; exit 1; }
+          cp build/android/aapt2 out/aapt2-android-arm64
+          python3 -I aapt2/stamp_build_number.py out/aapt2-android-arm64 "apkbuilder005-$AOSP_TAG-android-arm64"
+          cp build/android/aapt2.map out/aapt2-android-arm64.map
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" out/aapt2-android-arm64
+      - name: Identify and check the binaries
+        if: always()
+        run: |
+          set +e
+          RE="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          for b in out/aapt2-linux-x86_64 out/aapt2-android-arm64; do
+            [ -f "$b" ] || continue
+            { file "$b"; "$RE" -h -l -d "$b"; } > "$b.readelf.txt" 2>&1
+          done
+          python3 -I aapt2/check_binary.py out/aapt2-android-arm64 out/aapt2-android-arm64.map > out/aapt2-android-arm64.check.json; cat out/aapt2-android-arm64.check.json
+          cp build/android/gen/sources.cmake out/sources-android.cmake 2>/dev/null
+          cp build/host/gen/sources.cmake out/sources-host.cmake 2>/dev/null
+          cp build/android/gen/flags/android_content_res.h out/ 2>/dev/null
+          gzip -9 -f out/aapt2-android-arm64.map out/*-build.txt 2>/dev/null
+          (cd out && sha256sum aapt2-linux-x86_64 aapt2-android-arm64 2>/dev/null) | tee out/aapt2-SHA256SUMS.txt
+          echo "host=${{ steps.host.outcome }} android=${{ steps.android.outcome }}" | tee out/build-outcome.txt
+          [ "${{ steps.host.outcome }}" = success ] && [ "${{ steps.android.outcome }}" = success ]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aapt2
+          path: out
+          if-no-files-found: warn
+
+  framework:
+    name: Framework resource table (AOSP core/res)
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned inputs
+        run: grep -E '^[A-Z0-9_]+=' pins/stage0.env >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: aapt2
+          path: bin
+      - name: frameworks/base core/res and the content.res flag declarations at the pinned tag
+        run: |
+          git clone -q --depth 1 --filter=blob:none --no-checkout --branch "$AOSP_TAG" https://android.googlesource.com/platform/frameworks/base fwb
+          git -C fwb sparse-checkout set --no-cone /core/res/ /core/java/android/content/res/flags.aconfig /NOTICE /MODULE_LICENSE_APACHE2
+          git -C fwb checkout -q
+          git clone -q --depth 1 --filter=blob:none --no-checkout --branch "$AOSP_TAG" https://android.googlesource.com/platform/build/release release
+          git -C release sparse-checkout set --no-cone '/aconfig/**/android.content.res/**' '/release_configs/**' '/flag_values/**' '/build_config/**' '/OWNERS'
+          git -C release checkout -q
+          mkdir -p out/framework
+          printf 'frameworks/base %s\nbuild/release %s\n' "$(git -C fwb rev-parse HEAD)" "$(git -C release rev-parse HEAD)" | tee out/framework/inputs-commits.txt
+      - name: aconfig values of android.content.res in the release configuration (report only)
+        run: python3 -I scripts/aconfig_values.py fwb/core/java/android/content/res/flags.aconfig release aapt2/flags/android_content_res.values | tee out/framework/aconfig-values.txt
+      - name: SDK platform android.jar for comparison only (never published)
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          P=$("$SDKM" --list 2>/dev/null | python3 -I scripts/pick_platform.py 37 2> >(tee out/framework/comparison-platform.txt >&2) || true)
+          if [ -n "$P" ]; then "$SDKM" --install "$P" > /dev/null 2>&1; J="$ANDROID_HOME/platforms/${P#platforms;}/android.jar"; [ -f "$J" ] && echo "COMPARE_JAR=$J" >> "$GITHUB_ENV"; fi
+      - name: Build, verify and smoke-test the table
+        run: |
+          chmod +x bin/aapt2-linux-x86_64
+          python3 -I scripts/framework_table.py --aapt2 bin/aapt2-linux-x86_64 --core-res fwb/core/res --tag "$AOSP_TAG" \
+            --sample samples/res-smoke --out out/framework ${COMPARE_JAR:+--compare-jar "$COMPARE_JAR"} 2>&1 | tail -80
+          cp fwb/NOTICE out/framework/AOSP-frameworks-base-NOTICE.txt
+          rm -f out/framework/framework-compiled.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: framework
+          path: out
+          if-no-files-found: warn
+
+  arm64:
+    name: Android ARM64 AAPT2 on an ARM64 Linux runner
+    needs: [build, framework]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned inputs
+        run: grep -E '^[A-Z0-9_]+=' pins/stage0.env >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: aapt2
+          path: bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: framework
+          path: fw
+      - name: Same table and same smoke link as the desktop build
+        run: |
+          set +e
+          mkdir -p out/arm64
+          A=bin/aapt2-android-arm64; chmod +x "$A"
+          { uname -a; "$A" version; echo "exit $?"; } 2>&1 | tee out/arm64/version.txt
+          git clone -q --depth 1 --filter=blob:none --no-checkout --branch "$AOSP_TAG" https://android.googlesource.com/platform/frameworks/base fwb
+          git -C fwb sparse-checkout set --no-cone /core/res/
+          git -C fwb checkout -q
+          python3 -I scripts/framework_table.py --aapt2 "$A" --core-res fwb/core/res --tag "$AOSP_TAG" \
+            --sample samples/res-smoke --out out/arm64/framework > out/arm64/framework-run.txt 2>&1
+          echo "framework_table.py exit $?" | tee -a out/arm64/framework-run.txt
+          tail -40 out/arm64/framework-run.txt
+          rm -f out/arm64/framework/framework-compiled.zip
+          python3 -I - <<'PY' | tee out/arm64/compare-with-desktop.json
+          import json
+          d = json.load(open("fw/framework/framework-report.json")); a = json.load(open("out/arm64/framework/framework-report.json"))
+          keys = ["framework_res_sha256", "framework_table_sha256", "resources_in_table", "public_in_table", "public_mismatches"]
+          out = {k: {"desktop": d.get(k), "arm64": a.get(k), "same": d.get(k) == a.get(k)} for k in keys}
+          for s in ("smoke_full", "smoke_stripped"):
+              for k in ("resources_arsc_sha256", "r_txt_sha256", "apk_sha256"):
+                  out["%s.%s" % (s, k)] = {"desktop": d[s][k], "arm64": a[s][k], "same": d[s][k] == a[s][k]}
+          out["all_same"] = all(v["same"] for v in out.values() if isinstance(v, dict))
+          print(json.dumps(out, indent=1))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arm64
+          path: out
+          if-no-files-found: warn
+
+  publish:
+    name: Publish
+    needs: [build, framework, arm64]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: bash scripts/publish_release.sh aapt2 "AAPT2 and framework table" art
