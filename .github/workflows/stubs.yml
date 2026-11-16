@@ -1,0 +1,80 @@
+# APK Builder 005 Stage 0 (approval D-00): collect the public API signature files of the pinned AOSP release,
+# generate API 37 compile stubs with APK Builder's StubGen, and compare them with the SDK android.jar
+# (comparison only; nothing from the SDK is published).
+name: stubs
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/stubs.yml', 'scripts/api_stubs.py', 'scripts/pick_platform.py', 'tools/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stubs
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  stubs:
+    name: API 37 stubs from AOSP signature files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned inputs
+        run: grep -E '^[A-Z0-9_]+=' pins/stage0.env >> "$GITHUB_ENV"
+      - name: SDK platform android.jar for comparison only (never published)
+        run: |
+          mkdir -p out/stubs
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          P=$("$SDKM" --list 2>/dev/null | python3 -I scripts/pick_platform.py 37 2> >(tee out/stubs/comparison-platform.txt >&2) || true)
+          if [ -n "$P" ]; then
+            "$SDKM" --install "$P" > /dev/null 2>&1
+            J="$ANDROID_HOME/platforms/${P#platforms;}/android.jar"
+            [ -f "$J" ] && { echo "COMPARE_JAR=$J" >> "$GITHUB_ENV"; sha256sum "$J" | tee -a out/stubs/comparison-platform.txt; }
+          fi
+      - name: Collect the public API signature files
+        run: python3 -I scripts/api_stubs.py collect --tag "$AOSP_TAG" --out out/stubs ${COMPARE_JAR:+--compare-jar "$COMPARE_JAR"} 2>&1 | tee out/stubs/collect-log.txt
+      - name: ASM from Maven Central (for StubGen)
+        run: |
+          MD=$(curl -fsSL https://repo1.maven.org/maven2/org/ow2/asm/asm/maven-metadata.xml)
+          V=$(echo "$MD" | grep -oE '<version>9\.[0-9]+(\.[0-9]+)?</version>' | sed -E 's/<\/?version>//g' | sort -V | tail -1)
+          curl -fsSL -o asm.jar "https://repo1.maven.org/maven2/org/ow2/asm/asm/$V/asm-$V.jar"
+          curl -fsSL -o asm.jar.sha1 "https://repo1.maven.org/maven2/org/ow2/asm/asm/$V/asm-$V.jar.sha1"
+          echo "$(cut -c1-40 asm.jar.sha1)  asm.jar" | sha1sum -c -
+          echo "asm $V $(sha256sum asm.jar | cut -c1-64)" | tee out/stubs/asm.txt
+      - name: Generate the stubs with StubGen
+        id: gen
+        continue-on-error: true
+        run: |
+          javac -nowarn -cp asm.jar -d stubgen tools/StubGen.java
+          java -cp stubgen:asm.jar StubGen out/stubs/android-api-current.txt out/stubs/classes > out/stubs/stubgen-log.txt 2>&1 || { tail -40 out/stubs/stubgen-log.txt; exit 1; }
+          tail -40 out/stubs/stubgen-log.txt
+          python3 -I tools/detjar.py out/stubs/classes out/stubs/android-37-stubs.jar
+          sha256sum out/stubs/android-37-stubs.jar | tee out/stubs/android-37-stubs.jar.sha256
+      - name: Compare the stubs with the SDK android.jar (comparison only)
+        if: steps.gen.outcome == 'success' && env.COMPARE_JAR != ''
+        continue-on-error: true
+        run: python3 -I scripts/api_stubs.py compare --stubs out/stubs/android-37-stubs.jar --compare-jar "$COMPARE_JAR" --out out/stubs/compare-sdk.json
+      - name: Tidy
+        if: always()
+        run: |
+          rm -rf out/stubs/_src out/stubs/classes
+          echo "stubgen=${{ steps.gen.outcome }}" | tee out/stubs/outcome.txt
+      - name: Publish
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p art && cp -r out/stubs art/stubs
+          bash scripts/publish_release.sh stubs "API 37 stubs" art

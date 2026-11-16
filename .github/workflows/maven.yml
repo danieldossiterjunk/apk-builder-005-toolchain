@@ -1,0 +1,42 @@
+# APK Builder 005 Stage 0 (approval D-00): resolve the pinned AndroidX / Compose / Material library set from
+# Google Maven and Maven Central, verify every download, record licences and run the compatibility census.
+name: maven
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/maven.yml', 'scripts/maven_closure.py', 'pins/maven-roots.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maven
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  maven:
+    name: Library closure (Google Maven, Maven Central)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve, download, verify and census
+        run: |
+          mkdir -p out
+          python3 -I scripts/maven_closure.py pins/maven-roots.txt out/maven 2>&1 | tee out/maven-log.txt
+          cp licenses/Apache-2.0.txt out/maven/
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p art && cp -r out art/closure
+          bash scripts/publish_release.sh maven "Library closure" art

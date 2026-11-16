@@ -1,0 +1,72 @@
+# APK Builder 005 Stage 0 (approval D-03 option A): fetch the AOSP sources AAPT2 is built from at the pinned tag,
+# report where the build recipe no longer matches them, and publish a source snapshot (no .git) with the commit of
+# every repository, so the CMake recipe can be adapted and the build reproduced from exactly these sources.
+name: aapt2-src
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aapt2-src.yml', 'scripts/aapt2_sources.py']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aapt2-src
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sources:
+    name: AOSP sources for AAPT2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load the pinned inputs
+        run: grep -E '^[A-Z0-9_]+=' pins/stage0.env >> "$GITHUB_ENV"
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends bison flex patch zstd
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Fetch the build recipe at its pinned commit
+        run: |
+          git init -q recipe
+          git -C recipe fetch -q --depth 1 "$RECIPE_REPO" "$RECIPE_COMMIT"
+          git -C recipe checkout -q FETCH_HEAD
+          test "$(git -C recipe rev-parse HEAD)" = "$RECIPE_COMMIT"
+      - name: Fetch AOSP sources at the pinned tag (android.googlesource.com)
+        working-directory: recipe
+        run: |
+          mkdir -p ../out
+          python3 -I get_source.py --tags "$AOSP_TAG" --jobs 8 2>&1 | tee ../out/get-source.txt
+      - name: Report recipe paths missing at this tag
+        run: python3 -I scripts/aapt2_sources.py report recipe out/recipe-missing.json
+      - name: Pack the AAPT2 source subset
+        run: |
+          python3 -I scripts/aapt2_sources.py pack recipe "out/aapt2-sources-$AOSP_TAG.tar.zst" | tee out/pack.txt
+          cp recipe/SOURCES.txt out/
+          du -sh recipe/src/* | sort -h | tail -15
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs
+          path: |
+            out/*.txt
+            out/*.json
+          if-no-files-found: warn
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p art/logs
+          cp out/*.txt out/*.json art/logs/
+          bash scripts/publish_release.sh aapt2-src "AAPT2 sources $AOSP_TAG" art "out/aapt2-sources-$AOSP_TAG.tar.zst"

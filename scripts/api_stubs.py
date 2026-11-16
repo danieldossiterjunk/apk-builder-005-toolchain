@@ -9,7 +9,8 @@ stubs with APK Builder's StubGen, and compare the result with the SDK's android.
 external/icu, external/conscrypt and every packages/modules/* project) as a partial, blob-less clone, and
 checks out only the files named api/current.txt (the public SDK surface; system, module-lib and test API
 files have other names). With --compare-jar, a file is used only when most of its classes are in the SDK's
-android.jar; every decision is written to DIR/selection.json. The merged file is DIR/android-api-current.txt.
+android.jar; every decision is written to DIR/selection.json. The merged file is DIR/android-api-current.txt and
+every collected file is kept under DIR/signature-files/<project path>/.
 Nothing from the SDK is copied into the outputs.
 """
 import argparse, hashlib, json, os, re, subprocess, sys, zipfile, struct
@@ -76,7 +77,7 @@ def collect(a):
     selected = []; decisions = []
     for f in files:
         reason = None
-        if f["format"] != "2.0": reason = "signature format %s (StubGen reads 2.0 only)" % f["format"]
+        if f["format"] not in ("2.0", "6.0"): reason = "signature format %s (not handled)" % f["format"]
         elif f["classes"] == 0: reason = "no classes"
         elif sdk is not None:
             frac = len(f["_cls"] & sdk) / float(f["classes"])
@@ -84,10 +85,20 @@ def collect(a):
             if frac < 0.9: reason = "only %.0f%% of its classes are in the SDK android.jar" % (100 * frac)
         decisions.append({k: v for k, v in f.items() if not k.startswith("_")} | {"used": reason is None, "reason": reason})
         if reason is None: selected.append(f)
-    merged = ["// Signature format: 2.0"]
+    # keep a copy of every collected signature file (AOSP, Apache-2.0) so the result can be reproduced offline
+    raw = os.path.join(a.out, "signature-files")
+    for f in files:
+        dst = os.path.join(raw, f["path"])
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(dst, "w", encoding="utf-8", newline="\n") as fh: fh.write(f["_text"])
+    formats = sorted(set(f["format"] for f in selected))
+    merged = ["// Signature format: %s" % (formats[0] if len(formats) == 1 else "MIXED " + ",".join(formats))]
+    # format 6.0 files carry "// - key=value" property lines after the format line; keep the first file's set
+    for f in selected[:1]:
+        merged += [l for l in f["_text"].splitlines()[1:] if l.startswith("// - ")]
     union = set()
     for f in selected:
-        body = [l for l in f["_text"].splitlines() if not l.startswith("// Signature format:")]
+        body = [l for l in f["_text"].splitlines() if not l.startswith("// Signature format:") and not l.startswith("// - ")]
         merged += body; union |= f["_cls"]
     out_txt = os.path.join(a.out, "android-api-current.txt")
     with open(out_txt, "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(merged) + "\n")

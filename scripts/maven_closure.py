@@ -463,12 +463,14 @@ def main():
         line = raw.split("#", 1)[0].strip()
         if line.startswith("bom "):
             g, a, v = line[4:].strip().split(":")
-            p = pom_info(g, a, v)
+            # the BOM's own constraints: its Gradle module metadata platform variant, else its POM dependencyManagement
+            cons = {(c["g"], c["a"]): c["v"] for c in res.platform_constraints(g, a, v)}
             diffs = []
-            for (dg, da), dv in sorted(p["dm"].items()):
+            for (dg, da), dv in sorted(cons.items()):
                 sel = res.selected.get((dg, da))
                 if sel and sel != dv: diffs.append({"module": "%s:%s" % (dg, da), "bom": dv, "selected": sel})
-            report["boms"].append({"bom": "%s:%s:%s" % (g, a, v), "entries": len(p["dm"]), "differences_with_selection": diffs})
+            report["boms"].append({"bom": "%s:%s:%s" % (g, a, v), "entries": len(cons), "differences_with_selection": diffs,
+                                   "selected_modules_covered": sum(1 for k in cons if k in res.selected)})
     with open(os.path.join(out_dir, "closure.json"), "w") as fh: json.dump(report, fh, indent=1, sort_keys=True)
     with open(os.path.join(out_dir, "SHA256SUMS.txt"), "w") as fh: fh.write("\n".join(sorted(sums, key=lambda s: s[66:])) + "\n")
     # human summary
