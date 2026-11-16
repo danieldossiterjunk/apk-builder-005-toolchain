@@ -19,7 +19,8 @@ import org.objectweb.asm.MethodVisitor;
 
 /**
  * Generates compile-time API stub classes (no implementation) from an AOSP API signature file
- * ("// Signature format: 2.0", e.g. frameworks/base api/current.txt of Android 10).
+ * ("// Signature format: 2.0", e.g. frameworks/base api/current.txt of Android 10, or "// Signature format: 6.0"
+ * with "// - style=java", e.g. the merged public API files of Android 17; both use the same Java syntax).
  *
  * The output plays the role that android.jar plays for a compiler: it lets a Java compiler resolve
  * the public platform API. Every method body is {@code throw new RuntimeException("Stub!")}.
@@ -390,10 +391,21 @@ public final class StubGen {
 
     void run(Path in, Path out) throws IOException {
         List<String> lines = Files.readAllLines(in, StandardCharsets.UTF_8);
-        if (!lines.get(0).startsWith("// Signature format: 2.0")) throw new IOException("unsupported signature format: " + lines.get(0));
+        String fmt = lines.get(0);
+        if (fmt.startsWith("// Signature format: 6.0")) {
+            // format 6.0 states its properties as "// - key=value" lines; only the Java style is the 2.0 syntax
+            for (int k = 1; k < lines.size() && lines.get(k).startsWith("// - "); k++) {
+                String prop = lines.get(k).substring(5).trim();
+                if (prop.startsWith("style=") && !prop.equals("style=java")) throw new IOException("unsupported signature property: " + prop);
+                if (!prop.startsWith("style=")) System.out.println("signature property (no effect on stubs): " + prop);
+            }
+        } else if (!fmt.startsWith("// Signature format: 2.0")) {
+            throw new IOException("unsupported signature format: " + fmt);
+        }
         String pkg = null; Cls cur = null; int n = 0;
         for (String line : lines) {
             n++;
+            if (line.startsWith("// ")) continue;
             if (line.startsWith("package ")) { pkg = line.substring(8, line.indexOf(' ', 8)); continue; }
             if (line.startsWith("    ") && cur != null) { cur.members.add(line.trim()); continue; }
             if (line.startsWith("  }")) { cur = null; continue; }

@@ -52,8 +52,10 @@ def collect(a):
     projects = []
     for p in root.findall("project"):
         name, path = p.get("name"), p.get("path") or p.get("name")
-        if path in ("frameworks/base", "libcore", "external/icu", "external/conscrypt") or path.startswith("packages/modules/"):
+        if path in ("frameworks/base", "libcore", "external/icu", "external/conscrypt") or path.startswith(("packages/modules/", "packages/providers/")):
             projects.append((name, path))
+    # projects whose path mentions pdf, for the record (android.graphics.pdf lives in a module)
+    pdf_like = sorted(p.get("path") or p.get("name") for p in root.findall("project") if "pdf" in (p.get("path") or p.get("name") or "").lower())
     sdk = jar_classes(a.compare_jar) if a.compare_jar and os.path.exists(a.compare_jar) else None
     files = []; provenance = []
     for name, path in sorted(projects, key=lambda x: x[1]):
@@ -64,7 +66,8 @@ def collect(a):
                 provenance.append({"project": name, "path": path, "error": p.stdout[-400:]}); continue
         commit = sh(["git", "-C", d, "rev-parse", "HEAD"]).stdout.strip()
         tree = sh(["git", "-C", d, "ls-tree", "-r", "--name-only", "HEAD"]).stdout.splitlines()
-        api = [t for t in tree if re.search(r"(^|/)api/current\.txt$", t) and not re.search(r"(^|/)(tests?|testing|samples?)(/|$)", t)]
+        # public API files: api/current.txt, or api/public/current.txt (ICU) and api/platform/current.txt (Conscrypt)
+        api = [t for t in tree if re.search(r"(^|/)api/((public|platform)/)?current\.txt$", t) and not re.search(r"(^|/)(tests?|testing|samples?)(/|$)", t)]
         if api:
             sh(["git", "-C", d, "checkout", "-q", "HEAD", "--"] + api)
         provenance.append({"project": name, "path": path, "commit": commit, "api_files": api})
@@ -82,7 +85,9 @@ def collect(a):
         elif sdk is not None:
             frac = len(f["_cls"] & sdk) / float(f["classes"])
             f["in_sdk_fraction"] = round(frac, 4)
-            if frac < 0.9: reason = "only %.0f%% of its classes are in the SDK android.jar" % (100 * frac)
+            # a public module API whose classes are mostly in the SDK is used whole (its few extra classes are
+            # flagged APIs newer than the SDK build); files with almost none in the SDK are test/system libraries
+            if frac < 0.5: reason = "only %.0f%% of its classes are in the SDK android.jar" % (100 * frac)
         decisions.append({k: v for k, v in f.items() if not k.startswith("_")} | {"used": reason is None, "reason": reason})
         if reason is None: selected.append(f)
     # keep a copy of every collected signature file (AOSP, Apache-2.0) so the result can be reproduced offline
@@ -102,7 +107,7 @@ def collect(a):
         merged += body; union |= f["_cls"]
     out_txt = os.path.join(a.out, "android-api-current.txt")
     with open(out_txt, "w", encoding="utf-8", newline="\n") as fh: fh.write("\n".join(merged) + "\n")
-    rep = {"tag": a.tag, "projects": provenance, "files": decisions, "merged_sha256": hashlib.sha256(open(out_txt, "rb").read()).hexdigest(),
+    rep = {"tag": a.tag, "pdf_like_projects_in_manifest": pdf_like, "projects": provenance, "files": decisions, "merged_sha256": hashlib.sha256(open(out_txt, "rb").read()).hexdigest(),
            "merged_classes": len(union)}
     if sdk is not None:
         rep["sdk_classes"] = len(sdk)

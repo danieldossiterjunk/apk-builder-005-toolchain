@@ -1,0 +1,22 @@
+# Host protoc from the pinned AOSP protobuf (with the pinned AOSP abseil-cpp), used to generate AAPT2's
+# protobuf sources. Built with the build machine's compilers, never the cross toolchain.
+#   cmake -S aapt2/protoc -B build-protoc -DAOSP_SRC=<dir> && cmake --build build-protoc --target protoc
+cmake_minimum_required(VERSION 3.22)
+project(apkbuilder_host_protoc C CXX)
+set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
+set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${AOSP_SRC}/abseil-cpp ${CMAKE_BINARY_DIR}/abseil-cpp EXCLUDE_FROM_ALL)
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_LIBUPB OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
+set(protobuf_ABSL_PROVIDER module CACHE STRING "" FORCE)
+add_subdirectory(${AOSP_SRC}/protobuf ${CMAKE_BINARY_DIR}/protobuf EXCLUDE_FROM_ALL)
