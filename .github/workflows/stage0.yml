@@ -18,6 +18,11 @@ concurrency:
   group: stage0
   cancel-in-progress: false
 
+defaults:
+  run:
+    # explicit bash gives "-eo pipefail": a failing command before "| tee" fails the step
+    shell: bash
+
 env:
   AOSP_TAG: android-17.0.0_r1
   RECIPE_REPO: https://github.com/lzhiyong/android-sdk-tools
@@ -154,7 +159,7 @@ jobs:
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null 2>&1 || true
-          P=$("$SDKM" --list 2>/dev/null | grep -oE 'platforms;android-37[^ |]*' | sort -u | tail -1)
+          P=$("$SDKM" --list 2>/dev/null | grep -oE 'platforms;android-37[^ |]*' | sort -u | tail -1 || true)
           echo "comparison platform: $P"
           if [ -n "$P" ]; then "$SDKM" --install "$P" > /dev/null 2>&1; J="$ANDROID_HOME/platforms/${P#platforms;}/android.jar"; [ -f "$J" ] && echo "COMPARE_JAR=$J" >> "$GITHUB_ENV"; echo "COMPARE_PLATFORM=$P" >> "$GITHUB_ENV"; fi
       - name: Build, verify and smoke-test the table
@@ -221,7 +226,7 @@ jobs:
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null 2>&1 || true
-          P=$("$SDKM" --list 2>/dev/null | grep -oE 'platforms;android-37[^ |]*' | sort -u | tail -1)
+          P=$("$SDKM" --list 2>/dev/null | grep -oE 'platforms;android-37[^ |]*' | sort -u | tail -1 || true)
           echo "comparison platform: $P"
           if [ -n "$P" ]; then "$SDKM" --install "$P" > /dev/null 2>&1; J="$ANDROID_HOME/platforms/${P#platforms;}/android.jar"; [ -f "$J" ] && echo "COMPARE_JAR=$J" >> "$GITHUB_ENV"; fi
       - name: Collect the public API signature files

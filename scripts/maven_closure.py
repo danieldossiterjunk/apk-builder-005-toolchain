@@ -27,25 +27,34 @@ UA = {"User-Agent": "apk-builder-005-stage0/1.0"}
 CACHE = {}
 
 
+MISSING = object()
+
+
 def fetch(url, binary=True, optional=False):
-    if url in CACHE: return CACHE[url]
-    last = None
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=120) as r:
-                data = r.read()
-            CACHE[url] = data if binary else data.decode("utf-8")
-            return CACHE[url]
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                if optional: CACHE[url] = None; return None
-                raise
-            last = e
-        except Exception as e:  # network hiccup
-            last = e
-        time.sleep(2 * (attempt + 1))
-    if optional: return None
-    raise RuntimeError("fetch failed: %s (%s)" % (url, last))
+    """GET a URL; the cache always holds bytes (or MISSING for a 404) and text is decoded on the way out."""
+    data = CACHE.get(url)
+    if data is None:
+        last = None
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=120) as r:
+                    data = r.read()
+                break
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    data = MISSING; break
+                last = e
+            except Exception as e:  # network hiccup
+                last = e
+            time.sleep(2 * (attempt + 1))
+        if data is None:
+            if optional: return None
+            raise RuntimeError("fetch failed: %s (%s)" % (url, last))
+        CACHE[url] = data
+    if data is MISSING:
+        if optional: return None
+        raise RuntimeError("not found (404): %s" % url)
+    return data if binary else data.decode("utf-8")
 
 
 def base(g, a, v):
@@ -169,11 +178,34 @@ class Resolver:
         self.forced = []         # (g, prefix, version)
         self.info = {}           # (g,a,v) -> resolved info
         self.platforms = set()
+        self.overridden = {}      # (g,a) -> versions replaced by a "force" line
+        self.pending = {}         # (g,a) -> requester, for dependencies whose version comes from a constraint
 
     def force_for(self, g, a):
         for fg, pre, fv in self.forced:
             if g == fg and a == pre: return fv
         return None
+
+    def platform_constraints(self, g, a, v):
+        """Constraints of a platform (BOM-like) module: from its .module platform variant, else its POM's dependencyManagement."""
+        key = ("platform", g, a, v)
+        if key in self.info: return self.info[key]
+        repo = find_repo(g, a, v)
+        out = []
+        mod_text = fetch(repo + base(g, a, v) + "%s-%s.module" % (a, v), binary=False, optional=True) if repo else None
+        if mod_text:
+            for var in json.loads(mod_text).get("variants", []):
+                at = var.get("attributes", {})
+                if at.get("org.gradle.category") in ("platform", "enforced-platform") and at.get("org.gradle.usage") in ("java-runtime", "java-api"):
+                    for c in var.get("dependencyConstraints", []) + var.get("dependencies", []):
+                        cv = pick_version(c.get("version"))
+                        if cv: out.append({"g": c["group"], "a": c["module"], "v": cv})
+                    if at.get("org.gradle.usage") == "java-runtime": break
+        elif repo:
+            pom = pom_info(g, a, v)
+            out = [{"g": k[0], "a": k[1], "v": val} for k, val in pom["dm"].items() if val]
+        self.info[key] = out
+        return out
 
     def module_info(self, g, a, v):
         key = (g, a, v)
@@ -220,9 +252,15 @@ class Resolver:
 
     def request(self, g, a, v, by):
         fv = self.force_for(g, a)
-        if fv: v = fv
+        if fv:
+            if v and v != fv: self.overridden.setdefault((g, a), set()).add("%s by %s" % (v, by))
+            v = fv
         if v is None: v = self.constraints.get((g, a))
-        if v is None: raise RuntimeError("no version for %s:%s (requested by %s)" % (g, a, by))
+        if v is None:
+            # no version yet: a platform/constraint seen later in the walk may supply it; retried next round
+            self.pending[(g, a)] = by
+            return
+        self.pending.pop((g, a), None)
         self.requested.setdefault((g, a), {}).setdefault(v, set()).add(by)
 
     def resolve(self, roots):
@@ -250,14 +288,12 @@ class Resolver:
                 for c in info["constraints"]:
                     k = (c["g"], c["a"])
                     if k not in self.constraints or vkey(c["v"]) > vkey(self.constraints[k]): self.constraints[k] = c["v"]
-                for d in info["deps"]:
-                    by = "%s:%s:%s" % (ga[0], ga[1], v)
+                by = "%s:%s:%s" % (ga[0], ga[1], v)
+                for d in [x for x in info["deps"] if x["platform"]] + [x for x in info["deps"] if not x["platform"]]:
                     if d["platform"]:
-                        pv = d["v"]
-                        if pv:
-                            self.platforms.add((d["g"], d["a"], pv))
-                            pinfo = self.module_info(d["g"], d["a"], pv)
-                            for c in pinfo["constraints"] + [{"g": x["g"], "a": x["a"], "v": x["v"]} for x in pinfo["deps"] if x["v"]]:
+                        if d["v"]:
+                            self.platforms.add((d["g"], d["a"], d["v"]))
+                            for c in self.platform_constraints(d["g"], d["a"], d["v"]):
                                 k = (c["g"], c["a"])
                                 if k not in self.constraints or vkey(c["v"]) > vkey(self.constraints[k]): self.constraints[k] = c["v"]
                         continue
@@ -268,7 +304,10 @@ class Resolver:
                 if (g, a) not in self.selected:
                     fv = self.force_for(g, a)
                     self.selected[(g, a)] = fv or max(vers, key=vkey)
-            if self.selected == before: return
+            if self.selected == before:
+                if self.pending:
+                    raise RuntimeError("no version found for: " + ", ".join("%s:%s (from %s)" % (k[0], k[1], b) for k, b in sorted(self.pending.items())))
+                return
         raise RuntimeError("resolution did not converge")
 
 
@@ -372,6 +411,7 @@ def main():
         v = res.selected[(g, a)]
         info = res.module_info(g, a, v)
         entry = {"coordinate": "%s:%s:%s" % (g, a, v), "requested": {k: sorted(s) for k, s in res.requested.get((g, a), {}).items()},
+                 "forced_over": sorted(res.overridden.get((g, a), [])),
                  "source": info["source"], "variant": info["variant"], "redirect": ":".join(info["redirect"]) if info["redirect"] else None,
                  "licenses": info["licenses"], "name": info["name"], "url": info["url"], "repo": info["repo"], "files": []}
         for f in info["files"]:
