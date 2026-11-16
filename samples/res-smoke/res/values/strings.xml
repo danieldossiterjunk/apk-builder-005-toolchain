@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Resource smoke test</string>
+    <string name="hello">Hello from AAPT2</string>
+    <string name="formatted">%1$d items in %2$s</string>
+    <string-array name="choices">
+        <item>One</item>
+        <item>Two</item>
+    </string-array>
+    <plurals name="apples">
+        <item quantity="one">%d apple</item>
+        <item quantity="other">%d apples</item>
+    </plurals>
+</resources>

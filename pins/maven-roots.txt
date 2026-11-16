@@ -1,0 +1,30 @@
+# APK Builder 005, Stage 0: candidate library catalogue (proposal, not approved for shipping).
+# Versions: latest stable on 16 Nov 2026 per developer.android.com (Compose BOM 2026.09.00).
+
+# The Kotlin standard library is the one APK Builder already bundles (byte-identical to the official 2.4.0 JAR).
+force org.jetbrains.kotlin:kotlin-stdlib:2.4.0
+
+# Compose set (decision D-06 option i)
+androidx.compose.runtime:runtime:1.12.1
+androidx.compose.runtime:runtime-saveable:1.12.1
+androidx.compose.ui:ui:1.12.1
+androidx.compose.foundation:foundation:1.12.1
+androidx.compose.material3:material3:1.4.0
+androidx.activity:activity-compose:1.13.0
+androidx.lifecycle:lifecycle-runtime-compose:2.11.0
+androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0
+androidx.navigation:navigation-compose:2.10.2
+androidx.core:core-ktx:1.19.1
+
+# Views set (decision D-06 options ii and iii)
+androidx.appcompat:appcompat:1.8.0
+androidx.constraintlayout:constraintlayout:2.2.2
+androidx.fragment:fragment-ktx:1.9.1
+com.google.android.material:material:1.14.0
+
+# Cross-check only: versions the Compose BOM recommends
+bom androidx.compose:compose-bom:2026.09.00
+
+# Tools, single artifacts: D8/R8 (BSD-3-Clause) and ASM for StubGen (BSD-3-Clause)
+tool com.android.tools:r8:latest-stable-9
+tool org.ow2.asm:asm:latest-stable-9

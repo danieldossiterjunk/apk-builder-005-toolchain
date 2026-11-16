@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="customColor" format="color|reference" />
+    <declare-styleable name="BadgeView">
+        <attr name="customColor" />
+        <attr name="badgeShape" format="enum">
+            <enum name="round" value="0" />
+            <enum name="square" value="1" />
+        </attr>
+        <attr name="android:text" />
+    </declare-styleable>
+</resources>
