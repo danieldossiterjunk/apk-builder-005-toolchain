@@ -393,7 +393,7 @@ def main():
     roots_file, out_dir = sys.argv[1], sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
     files_dir = os.path.join(out_dir, "files"); os.makedirs(files_dir, exist_ok=True)
-    roots, tools = [], []
+    roots, tools, boms = [], [], []
     res = Resolver()
     for raw in open(roots_file, encoding="utf-8"):
         line = raw.split("#", 1)[0].strip()
@@ -403,8 +403,14 @@ def main():
         if line.startswith("tool "):
             tools.append(tuple(line[5:].strip().split(":"))); continue
         if line.startswith("bom "):
-            continue
+            boms.append(tuple(line[4:].strip().split(":"))); continue
         g, a, v = line.split(":"); roots.append((g, a, v))
+    # a BOM line is applied as a Gradle platform would be: its versions raise those of the modules it lists
+    # (it adds no module by itself); the cross-check below then confirms the selection agrees with it
+    for g, a, v in boms:
+        for c in res.platform_constraints(g, a, v):
+            k = (c["g"], c["a"])
+            if k not in res.constraints or vkey(c["v"]) > vkey(res.constraints[k]): res.constraints[k] = c["v"]
     for g, a, v in roots: res.request(g, a, v, "ROOT")
     res.resolve(roots)
     report = {"roots": [":".join(r) for r in roots], "forced": [":".join(f) for f in res.forced], "modules": [], "tools": [], "boms": []}
