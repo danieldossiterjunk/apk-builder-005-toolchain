@@ -194,14 +194,15 @@ class Resolver:
         out = []
         mod_text = fetch(repo + base(g, a, v) + "%s-%s.module" % (a, v), binary=False, optional=True) if repo else None
         if mod_text:
-            for var in json.loads(mod_text).get("variants", []):
-                at = var.get("attributes", {})
-                if at.get("org.gradle.category") in ("platform", "enforced-platform") and at.get("org.gradle.usage") in ("java-runtime", "java-api"):
-                    for c in var.get("dependencyConstraints", []) + var.get("dependencies", []):
-                        cv = pick_version(c.get("version"))
-                        if cv: out.append({"g": c["group"], "a": c["module"], "v": cv})
-                    if at.get("org.gradle.usage") == "java-runtime": break
-        elif repo:
+            # the platform variant (any usage; runtime preferred) lists the BOM's constraints
+            vars_ = [v_ for v_ in json.loads(mod_text).get("variants", [])
+                     if v_.get("attributes", {}).get("org.gradle.category") in ("platform", "enforced-platform")]
+            vars_.sort(key=lambda v_: v_.get("attributes", {}).get("org.gradle.usage") != "java-runtime")
+            for var in vars_[:1]:
+                for c in var.get("dependencyConstraints", []) + var.get("dependencies", []):
+                    cv = pick_version(c.get("version"))
+                    if cv: out.append({"g": c["group"], "a": c["module"], "v": cv})
+        if not out and repo:
             pom = pom_info(g, a, v)
             out = [{"g": k[0], "a": k[1], "v": val} for k, val in pom["dm"].items() if val]
         self.info[key] = out
