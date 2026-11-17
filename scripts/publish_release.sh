@@ -39,6 +39,16 @@ print(json.dumps(prov, indent=1, sort_keys=True))
 PY
 (cd "$REL" && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
 TAG="$PREFIX-run-${GITHUB_RUN_NUMBER}"
-gh release create "$TAG" "$REL"/* --prerelease --target "$GITHUB_SHA" --title "$TITLE (run ${GITHUB_RUN_NUMBER})" \
-  --notes "APK Builder 005 Stage 0 feasibility evidence produced by CI (nothing here is phone-tested). Inputs, commit and job results: PROVENANCE.json; checksums: SHA256SUMS.txt. Third-party content keeps its own licence (see the licence and NOTICE files inside each archive)."
+NOTES="APK Builder 005 Stage 0 feasibility evidence produced by CI (nothing here is phone-tested). Inputs, commit and job results: PROVENANCE.json; checksums: SHA256SUMS.txt. Third-party content keeps its own licence (see the licence and NOTICE files inside each archive)."
+# Plain REST calls (tag, release, then each asset). On 2026-11-17 "gh release create" (which creates a draft
+# release first and uploads to it) began failing with HTTP 403 for this workflow token; these calls succeed.
+API="https://api.github.com/repos/$GITHUB_REPOSITORY"
+gh api -X POST "$API/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" --jq .ref
+REL_ID=$(gh api -X POST "$API/releases" -f tag_name="$TAG" -f name="$TITLE (run ${GITHUB_RUN_NUMBER})" -f body="$NOTES" -F prerelease=true --jq .id)
+for f in "$REL"/*; do
+  n=$(basename "$f")
+  curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+       --data-binary @"$f" "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$REL_ID/assets?name=$n" -o /dev/null
+  echo "uploaded $n"
+done
 echo "released $TAG"

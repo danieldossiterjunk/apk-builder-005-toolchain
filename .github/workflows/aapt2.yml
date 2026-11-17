@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/aapt2.yml', 'aapt2/**', 'scripts/framework_table.py', 'scripts/aconfig_values.py',
-            'samples/res-smoke/**', 'pins/stage0.env']
+            'samples/res-smoke/**', 'pins/stage0.env', 'scripts/publish_release.sh']
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: aapt2
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 defaults:
   run:

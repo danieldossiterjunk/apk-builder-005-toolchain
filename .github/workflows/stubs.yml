@@ -6,7 +6,7 @@ name: stubs
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/stubs.yml', 'scripts/api_stubs.py', 'scripts/pick_platform.py', 'tools/**']
+    paths: ['.github/workflows/stubs.yml', 'scripts/api_stubs.py', 'scripts/pick_platform.py', 'tools/**', 'scripts/publish_release.sh']
   workflow_dispatch:
 
 permissions:
