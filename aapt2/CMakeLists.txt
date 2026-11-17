@@ -9,7 +9,9 @@
 #          -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static]
 #
 # Deliberate differences from the upstream device build (each also reported in BUILD-NOTES.txt):
-#  * fully static executable (-static), so it runs from an app's native library directory with no other files;
+#  * the Android executable is fully static (-static), so it runs from an app's native library directory with no
+#    other files (the desktop one links the C library dynamically);
+#  * standard headers are force-included (std_prelude.h): AOSP relies on AOSP libc++'s transitive includes;
 #  * zlib is upstream zlib (the recipe's pinned commit), not AOSP's Chromium-derived external/zlib;
 #  * libandroidfw leaves out CursorWindow/Backup* (need libbinder; AAPT2 never calls them);
 #  * on Android, libincfs is linked as upstream but selinux_android_restorecon() (used only when mounting an
@@ -69,6 +71,7 @@ add_library(apk_zlib STATIC
     ${ZLIB_DIR}/gzlib.c ${ZLIB_DIR}/gzread.c ${ZLIB_DIR}/gzwrite.c ${ZLIB_DIR}/infback.c ${ZLIB_DIR}/inffast.c
     ${ZLIB_DIR}/inflate.c ${ZLIB_DIR}/inftrees.c ${ZLIB_DIR}/trees.c ${ZLIB_DIR}/uncompr.c ${ZLIB_DIR}/zutil.c)
 target_include_directories(apk_zlib PUBLIC ${ZLIB_DIR})
+target_compile_definitions(apk_zlib PRIVATE Z_HAVE_UNISTD_H HAVE_UNISTD_H)
 target_compile_options(apk_zlib PRIVATE -w)
 add_library(ZLIB::ZLIB ALIAS apk_zlib)
 set(ZLIB_FOUND TRUE)
@@ -89,15 +92,13 @@ set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
 set(M_LIBRARY m CACHE STRING "" FORCE)
 add_subdirectory(${S}/libpng ${CMAKE_BINARY_DIR}/libpng EXCLUDE_FROM_ALL)
 
-# expat
-set(EXPAT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(EXPAT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(EXPAT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(EXPAT_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(EXPAT_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
-set(EXPAT_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(EXPAT_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(${S}/expat/expat ${CMAKE_BINARY_DIR}/expat EXCLUDE_FROM_ALL)
+# expat, compiled as its Android.bp does: AOSP's single expat_config.h (lib/) serves every target and relies on
+# -include stdio.h so that __BIONIC__ / __GLIBC__ are known before it is read
+add_library(apk_expat STATIC ${S}/expat/expat/lib/xmlparse.c ${S}/expat/expat/lib/xmlrole.c ${S}/expat/expat/lib/xmltok.c)
+target_include_directories(apk_expat PUBLIC ${S}/expat/expat/lib)
+target_compile_definitions(apk_expat PRIVATE HAVE_EXPAT_CONFIG_H)
+target_compile_options(apk_expat PRIVATE -fno-strict-aliasing -include stdio.h -Wno-format)
+add_library(expat::expat ALIAS apk_expat)
 
 # fmt (libbase)
 set(FMT_INSTALL OFF CACHE BOOL "" FORCE)
@@ -146,12 +147,23 @@ set(AOSP_INCLUDES
     ${S}/selinux/libselinux/include
     ${S}/unwinding/libbacktrace/include
     ${GEN}/flags
+    ${S}/fmtlib/include
 )
+
+# AOSP code is written against AOSP's libc++, which still provides some standard headers transitively; with the
+# NDK's or the build machine's C++ library the same files may miss <cstring>, <variant> or <limits>. Including
+# them first changes nothing else.
+set(STD_PRELUDE ${CMAKE_CURRENT_SOURCE_DIR}/std_prelude.h)
+set(AOSP_CXX_FLAGS "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${STD_PRELUDE}>")
+if(NOT ANDROID)
+    # clang < 19 reports C++23-valid constexpr functions as errors
+    list(APPEND AOSP_CXX_FLAGS "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-constexpr>")
+endif()
 
 function(aosp_lib name)
     add_library(${name} STATIC ${${name}_SRCS} ${ARGN})
     target_include_directories(${name} PRIVATE ${AOSP_INCLUDES})
-    target_compile_options(${name} PRIVATE -Wno-unused-parameter -Wno-missing-field-initializers)
+    target_compile_options(${name} PRIVATE -Wno-unused-parameter -Wno-missing-field-initializers ${AOSP_CXX_FLAGS})
 endfunction()
 
 # read-only aconfig flags (Soong generates this header from the release configuration)
@@ -230,14 +242,16 @@ set(AAPT2_FLAGS -Wno-unused-parameter -Wno-missing-field-initializers -fno-excep
 add_library(libaapt2 STATIC ${libaapt2_SRCS} ${AAPT2_PB_SRCS})
 target_include_directories(libaapt2 PUBLIC ${S}/base/tools/aapt2 ${PROTO_OUT} ${PROTO_OUT}/frameworks/base/tools/aapt2
                            PRIVATE ${AOSP_INCLUDES} ${S}/libpng ${CMAKE_BINARY_DIR}/libpng)
-target_compile_options(libaapt2 PRIVATE ${AAPT2_FLAGS})
+target_compile_options(libaapt2 PRIVATE ${AAPT2_FLAGS} ${AOSP_CXX_FLAGS})
 target_link_libraries(libaapt2 PUBLIC protobuf::libprotobuf-lite expat::expat png_static)
 
 add_executable(aapt2 ${aapt2_SRCS})
 target_include_directories(aapt2 PRIVATE ${AOSP_INCLUDES} ${S}/libpng ${CMAKE_BINARY_DIR}/libpng)
-target_compile_options(aapt2 PRIVATE ${AAPT2_FLAGS})
-target_link_options(aapt2 PRIVATE -static -Wl,--gc-sections -Wl,-Map=${CMAKE_BINARY_DIR}/aapt2.map)
+target_compile_options(aapt2 PRIVATE ${AAPT2_FLAGS} ${AOSP_CXX_FLAGS})
+target_link_options(aapt2 PRIVATE -Wl,--gc-sections -Wl,-Map=${CMAKE_BINARY_DIR}/aapt2.map)
 if(ANDROID)
+    # fully static: runs from the app's native library directory with nothing else
+    target_link_options(aapt2 PRIVATE -static)
     # 16 KiB pages (Android 15+ devices may use them); NDK r28+ defaults to this, stated here for the record
     target_link_options(aapt2 PRIVATE -Wl,-z,max-page-size=16384)
 endif()
