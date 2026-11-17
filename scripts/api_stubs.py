@@ -135,6 +135,17 @@ def read_cp(b):
     return cp, p
 
 
+def supers(b):
+    """Superclass and interfaces (internal names) of a class file."""
+    cp, p = read_cp(b)
+    acc, this, sup, ni = struct.unpack_from(">HHHH", b, p)
+    names = []
+    if sup: names.append(cp[cp[sup][1]][1])
+    for k in range(ni):
+        names.append(cp[cp[struct.unpack_from(">H", b, p + 8 + 2 * k)[0]][1]][1])
+    return names
+
+
 def members(b):
     cp, p = read_cp(b)
     acc, this, sup, ni = struct.unpack_from(">HHHH", b, p); p += 8 + 2 * ni
@@ -158,6 +169,18 @@ def compare(a):
         common = sorted(set(mine) & set(sdk))
         miss_members = 0; extra_members = 0; sample = []
         sdk_public = 0
+        # members a class does not declare itself may still be reachable through its superclasses and interfaces in
+        # the stubs (signature files leave out most overrides, e.g. toString()); only the rest are real gaps
+        cache = {}
+        def decl(c):
+            if c not in cache:
+                cache[c] = (members(zs.read(mine[c]))[1], supers(zs.read(mine[c]))) if c in mine else (set(), [])
+            return cache[c]
+        def reachable(c, m, seen):
+            if c in seen: return False
+            seen.add(c); own, up = decl(c)
+            return m in own or any(reachable(x, m, seen) for x in up)
+        gaps = 0; gap_ctor = 0; gap_sample = []
         for c in common:
             acc_s, ms = members(zj.read(sdk[c])); acc_m, mm = members(zs.read(mine[c]))
             if not acc_s & 0x0001: continue
@@ -165,11 +188,16 @@ def compare(a):
             d = ms - mm
             miss_members += len(d); extra_members += len(mm - ms)
             if d and len(sample) < 300: sample.append({"class": c, "missing": sorted(d)[:8]})
+            real = sorted(m for m in d if " <init>" in m or not any(reachable(x, m, set()) for x in decl(c)[1]))
+            gaps += len(real); gap_ctor += sum(1 for m in real if " <init>" in m)
+            if real and len(gap_sample) < 400: gap_sample.append({"class": c, "missing": real[:10]})
         rep = {"stubs_classes": len(mine), "sdk_classes": len(sdk), "common": len(common), "sdk_public_common": sdk_public,
                "sdk_only_classes": len(set(sdk) - set(mine)), "stubs_only_classes": len(set(mine) - set(sdk)),
                "sdk_only_sample": sorted(set(sdk) - set(mine))[:300], "stubs_only_sample": sorted(set(mine) - set(sdk))[:100],
                "public_or_protected_members_missing_in_stubs": miss_members, "members_only_in_stubs": extra_members,
-               "missing_members_sample": sample}
+               "missing_members_sample": sample,
+               "missing_members_not_inherited": gaps, "missing_constructors": gap_ctor,
+               "missing_members_not_inherited_sample": gap_sample}
     with open(a.out, "w") as fh: json.dump(rep, fh, indent=1)
     print(json.dumps({k: v for k, v in rep.items() if not k.endswith("sample")}, indent=1))
 

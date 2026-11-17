@@ -14,7 +14,7 @@ add_subdirectory(${AOSP_SRC}/abseil-cpp ${CMAKE_BINARY_DIR}/abseil-cpp EXCLUDE_F
 set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
 set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_LIBUPB OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_LIBUPB ON CACHE BOOL "" FORCE)   # protoc (libprotoc) needs libupb in protobuf 30+
 set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(protobuf_WITH_ZLIB OFF CACHE BOOL "" FORCE)
