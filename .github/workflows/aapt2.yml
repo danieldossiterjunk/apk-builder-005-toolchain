@@ -55,11 +55,19 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
           echo "NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           grep Pkg.Revision "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" | tee out/ndk.txt
+      - name: Cached host protoc
+        id: protoc-cache
+        uses: actions/cache@v4
+        with:
+          path: build/protoc/protobuf/protoc*
+          key: protoc-${{ env.AAPT2_SRC_SHA256 }}-${{ hashFiles('aapt2/protoc/CMakeLists.txt') }}
       - name: Host protoc (from the snapshot's protobuf)
+        if: steps.protoc-cache.outputs.cache-hit != 'true'
         run: |
           cmake -GNinja -S aapt2/protoc -B build/protoc -DAOSP_SRC=$PWD/aosp/src -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > out/protoc-configure.txt 2>&1 || { tail -50 out/protoc-configure.txt; exit 1; }
           cmake --build build/protoc --target protoc -j 4 > out/protoc-build.txt 2>&1 || { grep -m20 -B2 -A8 'error' out/protoc-build.txt; exit 1; }
-          build/protoc/protobuf/protoc --version | tee out/protoc-version.txt
+      - name: protoc version
+        run: build/protoc/protobuf/protoc --version | tee out/protoc-version.txt
       - name: AAPT2 for the Linux desktop (x86_64)
         id: host
         continue-on-error: true
