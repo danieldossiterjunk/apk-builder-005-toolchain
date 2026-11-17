@@ -66,7 +66,7 @@ jobs:
         run: |
           cmake -GNinja -S aapt2 -B build/host -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld > out/host-configure.txt 2>&1 || { tail -60 out/host-configure.txt; exit 1; }
-          cmake --build build/host --target aapt2 -j 4 -k 0 > out/host-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/host-build.txt; exit 1; }
+          cmake --build build/host --target aapt2 -j 4 -- -k 0 > out/host-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/host-build.txt; exit 1; }
           cp build/host/aapt2 out/aapt2-linux-x86_64
           python3 -I aapt2/stamp_build_number.py out/aapt2-linux-x86_64 "apkbuilder005-$AOSP_TAG-linux-x86_64"
           strip out/aapt2-linux-x86_64
@@ -78,7 +78,7 @@ jobs:
           cmake -GNinja -S aapt2 -B build/android -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
             -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static > out/android-configure.txt 2>&1 || { tail -60 out/android-configure.txt; exit 1; }
-          cmake --build build/android --target aapt2 -j 4 -k 0 > out/android-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/android-build.txt; exit 1; }
+          cmake --build build/android --target aapt2 -j 4 -- -k 0 > out/android-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/android-build.txt; exit 1; }
           cp build/android/aapt2 out/aapt2-android-arm64
           python3 -I aapt2/stamp_build_number.py out/aapt2-android-arm64 "apkbuilder005-$AOSP_TAG-android-arm64"
           cp build/android/aapt2.map out/aapt2-android-arm64.map
