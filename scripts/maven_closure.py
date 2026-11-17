@@ -466,6 +466,11 @@ def main():
             g, a, v = line[4:].strip().split(":")
             # the BOM's own constraints: its Gradle module metadata platform variant, else its POM dependencyManagement
             cons = {(c["g"], c["a"]): c["v"] for c in res.platform_constraints(g, a, v)}
+            # keep the BOM's own metadata next to the report (small text files) so the cross-check can be audited
+            brepo = find_repo(g, a, v)
+            for ext in ("pom", "module"):
+                t = fetch(brepo + base(g, a, v) + "%s-%s.%s" % (a, v, ext), binary=True, optional=True) if brepo else None
+                if t: open(os.path.join(out_dir, "bom-%s-%s.%s" % (a, v, ext)), "wb").write(t)
             diffs = []
             for (dg, da), dv in sorted(cons.items()):
                 sel = res.selected.get((dg, da))
