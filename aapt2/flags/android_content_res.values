@@ -1,8 +1,13 @@
 # Read-only values of the aconfig flags in package android.content.res that libandroidfw (and so AAPT2) reads.
-# Soong generates android_content_res.h from the release configuration; here the values are pinned and the
-# Stage 0 workflow reports the values found in the release configuration of the pinned tag next to them.
+# Soong generates android_content_res.h from the release configuration; here the values are pinned. The
+# aapt2 workflow reports, next to them, the values found in platform/build/release at the pinned tag.
 # Every flag named in libandroidfw/AAPT2 sources must be listed (gen_flags.py does not invent defaults).
 #
+# Source (aapt2 workflow run 9, build/release at android-17.0.0_r1): android-17.0.0_r1 is release
+# configuration cp1a (its build IDs start with CP1A).
+#   resource_readwrite_flags: aconfig/cp1a/... ENABLED READ_ONLY            -> true
+#   xml_file_size_limit:      set only for cp2a and trunk_staging (later)   -> false (aconfig default)
+#
 # package android.content.res
-resource_readwrite_flags false
+resource_readwrite_flags true
 xml_file_size_limit false

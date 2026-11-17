@@ -100,20 +100,26 @@ def main():
     ap.add_argument("--aapt2", required=True); ap.add_argument("--core-res", required=True); ap.add_argument("--tag", required=True)
     ap.add_argument("--sample", required=True); ap.add_argument("--out", required=True); ap.add_argument("--compare-jar")
     ap.add_argument("--api-level", default="37"); ap.add_argument("--version-name", default="17")
+    ap.add_argument("--feature-flags-file", help="one name:PERMISSION=value per line (scripts/feature_flags.py)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     log = os.path.join(a.out, "log-framework.txt")
     report = {"tag": a.tag, "aapt2": a.aapt2, "aapt2_sha256": sha256(a.aapt2)}
     report["aapt2_version"] = run([a.aapt2, "version"], log).stdout.strip()
     run([a.aapt2, "compile", "--help"], log, check=False); run([a.aapt2, "link", "--help"], log, check=False)
+    ff = []
+    if a.feature_flags_file:
+        flags = [l.strip() for l in open(a.feature_flags_file) if l.strip()]
+        ff = ["--feature-flags", ",".join(flags)]
+        report["feature_flags"] = len(flags)
     compiled = os.path.join(a.out, "framework-compiled.zip")
-    run([a.aapt2, "compile", "--dir", os.path.join(a.core_res, "res"), "-o", compiled], log)
+    run([a.aapt2, "compile", "--dir", os.path.join(a.core_res, "res"), "-o", compiled] + ff, log)
     full = os.path.join(a.out, "framework-res.apk")
     base = [a.aapt2, "link", "-o", full, "--manifest", os.path.join(a.core_res, "AndroidManifest.xml"), "-x",
             "--private-symbols", "com.android.internal", "--no-auto-version", "--auto-add-overlay",
             "--min-sdk-version", a.api_level, "--target-sdk-version", a.api_level,
             "--version-code", a.api_level, "--version-name", a.version_name,
-            "--emit-ids", os.path.join(a.out, "framework-ids.txt")]
+            "--emit-ids", os.path.join(a.out, "framework-ids.txt")] + ff
     attempts = [base + ["--enable-sparse-encoding", compiled], base + [compiled]]
     linked = None
     for i, cmd in enumerate(attempts):

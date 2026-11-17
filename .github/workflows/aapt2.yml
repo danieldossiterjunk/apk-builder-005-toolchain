@@ -10,7 +10,7 @@ name: aapt2
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/aapt2.yml', 'aapt2/**', 'scripts/framework_table.py', 'scripts/aconfig_values.py',
+    paths: ['.github/workflows/aapt2.yml', 'aapt2/**', 'scripts/framework_table.py', 'scripts/aconfig_values.py', 'scripts/feature_flags.py',
             'samples/res-smoke/**', 'pins/stage0.env', 'scripts/publish_release.sh']
   workflow_dispatch:
 
@@ -132,15 +132,20 @@ jobs:
       - name: frameworks/base core/res and the content.res flag declarations at the pinned tag
         run: |
           git clone -q --depth 1 --filter=blob:none --no-checkout --branch "$AOSP_TAG" https://android.googlesource.com/platform/frameworks/base fwb
-          git -C fwb sparse-checkout set --no-cone /core/res/ /core/java/android/content/res/flags.aconfig /NOTICE /MODULE_LICENSE_APACHE2
+          git -C fwb sparse-checkout set --no-cone /core/res/ '*.aconfig' /NOTICE /MODULE_LICENSE_APACHE2
           git -C fwb checkout -q
           git clone -q --depth 1 --filter=blob:none --no-checkout --branch "$AOSP_TAG" https://android.googlesource.com/platform/build/release release
-          git -C release sparse-checkout set --no-cone '/aconfig/**/android.content.res/**' '/release_configs/**' '/flag_values/**' '/build_config/**' '/OWNERS'
+          git -C release sparse-checkout set --no-cone '/aconfig/' '/release_configs/' '/*.textproto' '/OWNERS'
           git -C release checkout -q
+          ls release release/release_configs | head -40
           mkdir -p out/framework
           printf 'frameworks/base %s\nbuild/release %s\n' "$(git -C fwb rev-parse HEAD)" "$(git -C release rev-parse HEAD)" | tee out/framework/inputs-commits.txt
       - name: aconfig values of android.content.res in the release configuration (report only)
         run: python3 -I scripts/aconfig_values.py fwb/core/java/android/content/res/flags.aconfig release aapt2/flags/android_content_res.values | tee out/framework/aconfig-values.txt
+      - name: Feature-flag values for the framework resources (release configuration of the tag)
+        run: |
+          python3 -I scripts/feature_flags.py fwb/core/res release "$AOSP_RELEASE_CONFIG" out/framework/feature-flags.txt out/framework/feature-flags.json fwb
+          cat release/release_configs/$AOSP_RELEASE_CONFIG.textproto 2>/dev/null | head -40 | tee out/framework/release-config.txt
       - name: SDK platform android.jar for comparison only (never published)
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -151,6 +156,7 @@ jobs:
         run: |
           chmod +x bin/aapt2-linux-x86_64
           python3 -I scripts/framework_table.py --aapt2 bin/aapt2-linux-x86_64 --core-res fwb/core/res --tag "$AOSP_TAG" \
+            --feature-flags-file out/framework/feature-flags.txt \
             --sample samples/res-smoke --out out/framework ${COMPARE_JAR:+--compare-jar "$COMPARE_JAR"} 2>&1 | tail -80
           cp fwb/NOTICE out/framework/AOSP-frameworks-base-NOTICE.txt
           rm -f out/framework/framework-compiled.zip
@@ -188,6 +194,7 @@ jobs:
           git -C fwb sparse-checkout set --no-cone /core/res/
           git -C fwb checkout -q
           python3 -I scripts/framework_table.py --aapt2 "$A" --core-res fwb/core/res --tag "$AOSP_TAG" \
+            --feature-flags-file fw/framework/feature-flags.txt \
             --sample samples/res-smoke --out out/arm64/framework > out/arm64/framework-run.txt 2>&1
           echo "framework_table.py exit $?" | tee -a out/arm64/framework-run.txt
           tail -40 out/arm64/framework-run.txt
