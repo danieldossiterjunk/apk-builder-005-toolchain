@@ -114,7 +114,8 @@ def variant_score(attrs):
 
 
 def parse_pom(text):
-    text = re.sub(r'\sxmlns="[^"]+"', "", text, count=1)
+    # default namespace in either quote style (the Compose BOM writes xmlns='...')
+    text = re.sub(r"""\sxmlns=("[^"]+"|'[^']+')""", "", text, count=1)
     root = ET.fromstring(text)
     def t(el, path):
         x = el.find(path); return x.text.strip() if x is not None and x.text else None
