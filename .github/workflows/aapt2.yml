@@ -55,21 +55,30 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" > /dev/null
           echo "NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           grep Pkg.Revision "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties" | tee out/ndk.txt
+      - name: Cached AAPT2 binaries (same snapshot, NDK and build files)
+        id: bincache
+        uses: actions/cache@v4
+        with:
+          path: bincache
+          key: aapt2-bin-${{ env.AAPT2_SRC_SHA256 }}-${{ env.NDK_VERSION }}-${{ hashFiles('aapt2/**') }}
       - name: Cached host protoc
+        if: steps.bincache.outputs.cache-hit != 'true'
         id: protoc-cache
         uses: actions/cache@v4
         with:
           path: build/protoc/protobuf/protoc*
           key: protoc-${{ env.AAPT2_SRC_SHA256 }}-${{ hashFiles('aapt2/protoc/CMakeLists.txt') }}
       - name: Host protoc (from the snapshot's protobuf)
-        if: steps.protoc-cache.outputs.cache-hit != 'true'
+        if: steps.bincache.outputs.cache-hit != 'true' && steps.protoc-cache.outputs.cache-hit != 'true'
         run: |
           cmake -GNinja -S aapt2/protoc -B build/protoc -DAOSP_SRC=$PWD/aosp/src -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > out/protoc-configure.txt 2>&1 || { tail -50 out/protoc-configure.txt; exit 1; }
           cmake --build build/protoc --target protoc -j 4 > out/protoc-build.txt 2>&1 || { grep -m20 -B2 -A8 'error' out/protoc-build.txt; exit 1; }
       - name: protoc version
+        if: steps.bincache.outputs.cache-hit != 'true'
         run: build/protoc/protobuf/protoc --version | tee out/protoc-version.txt
       - name: AAPT2 for the Linux desktop (x86_64)
         id: host
+        if: steps.bincache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           cmake -GNinja -S aapt2 -B build/host -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
@@ -82,6 +91,7 @@ jobs:
           out/aapt2-linux-x86_64 version | tee out/aapt2-linux-x86_64.version
       - name: AAPT2 for Android ARM64 (NDK, static)
         id: android
+        if: steps.bincache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           cmake -GNinja -S aapt2 -B build/android -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
@@ -96,6 +106,13 @@ jobs:
         if: always()
         run: |
           set +e
+          if [ "${{ steps.bincache.outputs.cache-hit }}" = true ]; then
+            cp -r bincache/. out/
+            echo "binaries restored from the cache of an earlier run with identical inputs (same snapshot, NDK and aapt2/ files)" | tee out/from-cache.txt
+            echo "host=cached android=cached" | tee out/build-outcome.txt
+            cd out && sha256sum -c aapt2-SHA256SUMS.txt
+            exit $?
+          fi
           RE="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
           for b in out/aapt2-linux-x86_64 out/aapt2-android-arm64; do
             [ -f "$b" ] || continue
@@ -108,7 +125,10 @@ jobs:
           gzip -9 -f out/aapt2-android-arm64.map out/*-build.txt 2>/dev/null
           (cd out && sha256sum aapt2-linux-x86_64 aapt2-android-arm64 2>/dev/null) | tee out/aapt2-SHA256SUMS.txt
           echo "host=${{ steps.host.outcome }} android=${{ steps.android.outcome }}" | tee out/build-outcome.txt
-          [ "${{ steps.host.outcome }}" = success ] && [ "${{ steps.android.outcome }}" = success ]
+          [ "${{ steps.host.outcome }}" = success ] && [ "${{ steps.android.outcome }}" = success ] || exit 1
+          # keep everything this job publishes, for a later run with identical inputs
+          mkdir -p bincache && cp -r out/. bincache/
+          true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
