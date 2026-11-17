@@ -60,9 +60,15 @@ def walk(name):
 walk(config)
 
 def set_dir(s):
-    for cand in (s, s.replace("aconfig_value_set_", ""), s.replace("aconfig_value_set_", "").replace("_", "-")):
+    # value sets are named e.g. "aconfig_value_set-platform_build_release-cp1a" and live in aconfig/cp1a/
+    # (declared by the Android.bp there); try the name itself, its last "-" part, and the old "_" spelling
+    cands = [s, s.rsplit("-", 1)[-1], s.replace("aconfig_value_set_", "")]
+    for cand in cands:
         d = os.path.join(rel_dir, "aconfig", cand)
         if os.path.isdir(d): return d
+    for root, _, files in os.walk(os.path.join(rel_dir, "aconfig")):
+        if "Android.bp" in files and ('"%s"' % s) in open(os.path.join(root, "Android.bp"), encoding="utf-8", errors="replace").read():
+            return root
     return None
 
 

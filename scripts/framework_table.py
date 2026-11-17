@@ -137,20 +137,25 @@ def main():
     report["public_in_table"] = sum(1 for r in dumped.values() if "PUBLIC" in r["flags"])
     # public-final / public-staging against the linked table
     pubs = public_entries(os.path.join(a.core_res, "res", "values"))
-    bad = []; bad_final_alias = []
+    bad = []; bad_final_alias = []; removed = []
     for e in pubs:
         got = dumped.get(e["id"])
         if got is None or got["type"] != e["type"] or got["name"] != e["name"] or "PUBLIC" not in got["flags"]:
-            # staging-public-group-final entries keep old staged ids as aliases of finalized resources;
-            # they are reported separately and do not count as table errors
-            (bad_final_alias if e.get("group") == "staging-public-group-final" else bad).append(dict(e, id="0x%08x" % e["id"], found=got))
+            # staging-public-group-final entries keep old staged ids as aliases of finalized resources, and
+            # "removed_*" names in public-staging.xml only reserve the ids of withdrawn staged resources; both are
+            # reported separately and do not count as table errors
+            if e.get("group") == "staging-public-group-final": bad_final_alias.append(dict(e, id="0x%08x" % e["id"], found=got))
+            elif e["name"].startswith("removed_") and got is None: removed.append(dict(e, id="0x%08x" % e["id"]))
+            else: bad.append(dict(e, id="0x%08x" % e["id"], found=got))
     report["public_declared"] = len(pubs); report["public_mismatches"] = len(bad)
     report["public_staged_final_alias_unmatched"] = len(bad_final_alias)
+    report["public_removed_placeholders"] = len(removed)
     by_file = {}
     for e in pubs: by_file[e["file"] + ":" + e.get("group", "public")] = by_file.get(e["file"] + ":" + e.get("group", "public"), 0) + 1
     report["public_declared_by_source"] = by_file
     with open(os.path.join(a.out, "public-check.json"), "w") as fh:
-        json.dump({"declared": len(pubs), "mismatches": bad[:500], "staged_final_alias_unmatched": bad_final_alias[:200]}, fh, indent=1)
+        json.dump({"declared": len(pubs), "mismatches": bad[:500], "removed_placeholders": removed,
+                   "staged_final_alias_unmatched": bad_final_alias[:400]}, fh, indent=1)
     # smoke-test link against the full and the stripped table: the outputs must be identical
     r_full = link_smoke(a.aapt2, a.sample, full, os.path.join(a.out, "smoke", "full"), os.path.join(a.out, "log-smoke.txt"))
     r_strip = link_smoke(a.aapt2, a.sample, table, os.path.join(a.out, "smoke", "stripped"), os.path.join(a.out, "log-smoke.txt"))
@@ -158,11 +163,18 @@ def main():
     report["smoke_identical"] = r_full["resources_arsc_sha256"] == r_strip["resources_arsc_sha256"] and r_full["r_txt_sha256"] == r_strip["r_txt_sha256"]
     if a.compare_jar and os.path.exists(a.compare_jar):
         sdk = dump_table(a.aapt2, a.compare_jar, os.path.join(a.out, "log-dump-sdk.txt"))
-        mine_pub = {(r["type"], r["name"]): rid for rid, r in dumped.items() if "PUBLIC" in r["flags"]}
-        sdk_pub = {(r["type"], r["name"]): rid for rid, r in sdk.items() if "PUBLIC" in r["flags"]}
+        # a name may have more than one public id (a finalized resource and its old staged id): compare id sets
+        def pub_ids(table):
+            out = {}
+            for rid, r in table.items():
+                if "PUBLIC" in r["flags"]: out.setdefault((r["type"], r["name"]), set()).add(rid)
+            return out
+        mine_pub, sdk_pub = pub_ids(dumped), pub_ids(sdk)
         only_mine = sorted("%s/%s" % k for k in set(mine_pub) - set(sdk_pub))
         only_sdk = sorted("%s/%s" % k for k in set(sdk_pub) - set(mine_pub))
-        id_diff = sorted("%s/%s 0x%08x vs 0x%08x" % (k[0], k[1], mine_pub[k], sdk_pub[k]) for k in set(mine_pub) & set(sdk_pub) if mine_pub[k] != sdk_pub[k])
+        hexs = lambda ids: ",".join("0x%08x" % i for i in sorted(ids))
+        id_diff = sorted("%s/%s table %s, SDK %s" % (k[0], k[1], hexs(mine_pub[k]), hexs(sdk_pub[k]))
+                         for k in set(mine_pub) & set(sdk_pub) if mine_pub[k] != sdk_pub[k])
         r_sdk = link_smoke(a.aapt2, a.sample, a.compare_jar, os.path.join(a.out, "smoke", "sdk"), os.path.join(a.out, "log-smoke.txt"))
         cmp = {"sdk_public": len(sdk_pub), "table_public": len(mine_pub), "only_in_table": only_mine[:300], "only_in_sdk": only_sdk[:300],
                "only_in_table_count": len(only_mine), "only_in_sdk_count": len(only_sdk), "same_name_different_id": id_diff[:300],
