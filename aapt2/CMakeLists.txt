@@ -195,6 +195,13 @@ target_link_libraries(libbase PRIVATE fmt::fmt)
 
 aosp_lib(liblog)
 target_compile_definitions(liblog PRIVATE LIBLOG_LOG_TAG=1006 SNET_EVENT_LOG_TAG=1397638484 ANDROID_DEBUGGABLE=0)
+if(ANDROID)
+    # liblog defines functions that its public header marks as introduced in a later API level than the one this
+    # build targets (e.g. __android_log_logd_logger_with_timestamp, API 37); Soong compiles the platform at the
+    # newest level. Declaring unavailable symbols weak lets liblog compile its own definitions.
+    target_compile_definitions(liblog PRIVATE __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
+    target_compile_options(liblog PRIVATE -Wno-unguarded-availability -Wno-unguarded-availability-new)
+endif()
 
 aosp_lib(libcutils)
 target_compile_definitions(libcutils PRIVATE _GNU_SOURCE)

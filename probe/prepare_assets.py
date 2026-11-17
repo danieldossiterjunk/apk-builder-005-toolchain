@@ -12,7 +12,7 @@ Writes into ASSET_DIR (the probe's app/src/main/assets/probe):
                              with its META-INF service and module files (what -Xplugin loads on ART)
   android-stubs.jar          API stubs the probe compiles against
   compile-classpath.zip      the library JARs (AAR classes.jar) of the pinned closure, flat, sorted names
-  sample-compose.zip         the Compose sample (AndroidManifest.xml, src/...)
+  sample-compose.zip         the Compose sample (AndroidManifest.xml, src/...) and the plugin control file (control/...)
   ref-app-classes.jar        the sample compiled on the desktop by the official kotlinc 2.4.0 (JVM) + plugin
   r8-dex.zip                 R8/D8 9.5.32 converted to DEX by itself (plus its non-class resources)
   lambda-test.jar            the Java 8 desugaring sample compiled by javac --release 8
@@ -78,9 +78,11 @@ def d8(r8, args):
 
 def main():
     ap = argparse.ArgumentParser()
-    for k in ("out", "jni", "kotlin-dist", "b004-assets", "closure", "stubs", "r8", "aapt2-host", "aapt2-android",
-              "framework-table", "samples", "work"):
+    for k in ("out", "jni", "kotlin-dist", "b004-assets", "closure", "stubs", "r8", "samples", "work"):
         ap.add_argument("--" + k, required=True)
+    for k in ("aapt2-host", "aapt2-android", "framework-table"):
+        ap.add_argument("--" + k)
+    ap.add_argument("--skip-p3", action="store_true", help="prepare P1 and P2 only (for checking this script)")
     ap.add_argument("--expected-ci", help="JSON with smoke_arsc_sha256 / smoke_rtxt_sha256 from the CI framework job")
     a = ap.parse_args()
     out, work = os.path.abspath(a.out), os.path.abspath(a.work)
@@ -150,9 +152,11 @@ def main():
     with zipfile.ZipFile(os.path.join(out, "sample-compose.zip")) as z: z.extractall(sdir)
     kotlinc = os.path.join(a.kotlin_dist, "bin", "kotlinc")
     cp = os.pathsep.join([stubs, stdlib] + cp_jars)
-    for key, extra in (("classes", ["-Xplugin=" + plugin]), ("control_classes", [])):
+    # same three compiles as the phone: the sample with the plugin, then the control file with and without it
+    for key, extra, srcdir in (("classes", ["-Xplugin=" + plugin], "src"), ("control_with_plugin", ["-Xplugin=" + plugin], "control"),
+                               ("control_without_plugin", [], "control")):
         od = os.path.join(work, "p1-" + key)
-        run([kotlinc, "-no-jdk", "-no-reflect", "-no-stdlib", "-jvm-target", "11"] + extra + ["-classpath", cp, "-d", od, os.path.join(sdir, "src")])
+        run([kotlinc, "-no-jdk", "-no-reflect", "-no-stdlib", "-jvm-target", "11"] + extra + ["-classpath", cp, "-d", od, os.path.join(sdir, srcdir)])
         expected["p1"][key] = outputs(od)
     ref = os.path.join(work, "p1-classes")
     det_zip(os.path.join(out, "ref-app-classes.jar"), dir_entries(ref))
@@ -170,7 +174,7 @@ def main():
     add("r8-dex.zip", "R8/D8 9.5.32 (Google Maven, sha256 %s) converted to DEX by itself, with its resources" % sha(a.r8))
 
     # --- P2 references: same arguments and order as the phone
-    p2a = os.path.join(work, "p2-app")
+    p2a = os.path.join(work, "p2-app"); os.makedirs(p2a)
     d8(a.r8, ["--release", "--min-api", D8_MIN_API, "--lib", stubs] + sum((["--classpath", j] for j in [stdlib] + cp_jars), [])
        + ["--output", p2a, os.path.join(out, "ref-app-classes.jar")])
     expected["p2"]["app_dex"] = outputs(p2a)
@@ -180,19 +184,23 @@ def main():
     det_zip(os.path.join(out, "lambda-test.jar"), dir_entries(ltc))
     add("lambda-test.jar", "Java 8 desugaring sample compiled by javac --release 8")
     expected["p2"]["lambda_result"] = run(["java", "-cp", ltc, "org.apkbuilder.probe.lambda.LambdaTest"]).strip()
-    p2b = os.path.join(work, "p2-lambda")
+    p2b = os.path.join(work, "p2-lambda"); os.makedirs(p2b)
     d8(a.r8, ["--release", "--min-api", D8_MIN_API, "--lib", stubs, "--output", p2b, os.path.join(out, "lambda-test.jar")])
     expected["p2"]["lambda_dex"] = outputs(p2b)
     libdex = os.path.join(work, "libs-dex"); os.makedirs(libdex)
     d8(a.r8, ["--release", "--min-api", D8_MIN_API, "--lib", stubs, "--output", libdex, stdlib] + cp_jars)
     det_zip(os.path.join(out, "libs-dex.zip"), dir_entries(libdex))
     add("libs-dex.zip", "the library closure (Kotlin standard library + %d JARs) converted to DEX on the desktop by D8 9.5.32" % len(cp_jars))
-    p2c = os.path.join(work, "p2-merged")
+    p2c = os.path.join(work, "p2-merged"); os.makedirs(p2c)
     d8(a.r8, ["--release", "--min-api", D8_MIN_API, "--output", p2c, os.path.join(p2a, "classes.dex")]
        + [os.path.join(libdex, n) for n in sorted(os.listdir(libdex)) if n.endswith(".dex")])
     expected["p2"]["merged"] = outputs(p2c)
 
     # --- P3: AAPT2, framework table, resource test project, library resources
+    if a.skip_p3:
+        with open(os.path.join(out, "MANIFEST.json"), "w") as f:
+            f.write(json.dumps({"probe_version": "0.1.0", "files": files, "expected": expected, "partial": "P3 skipped"}, indent=1) + "\n")
+        print(json.dumps({k: v["bytes"] for k, v in files.items()}, indent=1)); return
     os.makedirs(os.path.join(a.jni, "arm64-v8a"), exist_ok=True)
     shutil.copyfile(a.aapt2_android, os.path.join(a.jni, "arm64-v8a", "libprobe_aapt2.so"))
     expected["p3"]["aapt2_sha256"] = sha(a.aapt2_android)
