@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = 'org.apkbuilder.probe005'
+    compileSdk = Integer.parseInt(providers.gradleProperty('probeCompileSdk').get())
+
+    defaultConfig {
+        // Disposable feasibility probe for APK Builder 005 (owner's approval D-01, option A): a separate app that
+        // installs next to APK Builder 001-004 and shares nothing with them (own ID, own storage, own debug key).
+        applicationId = 'org.apkbuilder.probe005'
+        minSdk = 29
+        targetSdk = 34
+        versionCode = 1
+        versionName = '0.1.0'
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled = false
+        }
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
+    androidResources {
+        // the test inputs are ZIP/JAR/DEX/APK files; storing them avoids a pointless second compression
+        noCompress += ['zip', 'jar', 'apk', 'dex', 'json']
+    }
+
+    packaging {
+        jniLibs {
+            // libprobe_aapt2.so is the AAPT2 program under test (a static ARM64 executable, named .so so that
+            // Android installs it). Android may only start programs from the app's native library directory,
+            // so it must be extracted at install time (extractNativeLibs="true" in the manifest says the same).
+            useLegacyPackaging = true
+            keepDebugSymbols += '**/*.so'
+        }
+    }
+}

@@ -1,0 +1,116 @@
+{
+ "probe_version": "0.1.0",
+ "files": {
+  "aar-res.zip": {
+   "sha256": "f2f73fdc46347fc8d7059a2d5ca42712a497ac5426b7c08f500abb9759062936",
+   "bytes": 1573958,
+   "what": "res/ folders of every AAR of the closure (1482 files)"
+  },
+  "android-stubs.jar": {
+   "sha256": "1ce8ca85b03895b5d0f4d8009291b152c694117556980e61bf86092dbc363ee2",
+   "bytes": 4058609,
+   "what": "Android API stubs the probe compiles against"
+  },
+  "compile-classpath.zip": {
+   "sha256": "edf27eb6518af7637eae306dd18139039d2a74a0fe14fbb86c71f91ecd871ef5",
+   "bytes": 30608374,
+   "what": "92 library JARs of the pinned AndroidX/Compose/Material closure (Kotlin standard library excluded)"
+  },
+  "compose-plugin-dex.jar": {
+   "sha256": "9ba80505dbd2d74ec8cf422fa2f90da0f068498f141fb5fb530507810162c99e",
+   "bytes": 348957,
+   "what": "official kotlinc 2.4.0 compose-compiler-plugin.jar (sha256 f5b37876fa3a5d2d27eff2fed3189db0ece1f547f3e9c635b49f969e631d15c1) converted to DEX by D8 9.5.32, with its META-INF service files"
+  },
+  "framework-table.apk": {
+   "sha256": "1dd130e98a5411fe29447009d9ff206abd4cdd1231d6ddf130290edcca7d06d5",
+   "bytes": 19942680,
+   "what": "AOSP android-17.0.0_r1 framework resource table built by CI"
+  },
+  "kotlin-compiler-dex.zip": {
+   "sha256": "7d1c202713d99dcb5b74d92bfb8e1afb7b6028c5609690e83fa458380bc51ae6",
+   "bytes": 62497206,
+   "what": "APK Builder 004 Kotlin compiler DEX pack (kotlinc-android 2.4.0), unchanged"
+  },
+  "kotlin-stdlib-2.4.0.jar": {
+   "sha256": "ccb14ff83fabcb11458b798dbc9824748ccdffeec79c9aba789e6ed1cda86b1c",
+   "bytes": 1841929,
+   "what": "APK Builder 004 Kotlin standard library 2.4.0 (identical to the official JAR)"
+  },
+  "lambda-test.jar": {
+   "sha256": "ba6c272a1bc00e78b7506b837cf35b09aa0f9e636f74d0fd6fcda9d38ceade18",
+   "bytes": 4128,
+   "what": "Java 8 desugaring sample compiled by javac --release 8"
+  },
+  "libs-dex.zip": {
+   "sha256": "0c9a2a901d78638d6aa6f013501dfccc8a264e2c08b53e36fd73c238e29e6001",
+   "bytes": 10114165,
+   "what": "the library closure (Kotlin standard library + 92 JARs) converted to DEX on the desktop by D8 9.5.32"
+  },
+  "r8-dex.zip": {
+   "sha256": "f2d809bad035d49b4d4bacd35eece39d46b3aea6362635255f9c68571730df85",
+   "bytes": 7826236,
+   "what": "R8/D8 9.5.32 (Google Maven, sha256 7c7b67be3069d395cdfbdea4799ffd04d75d81ccecf3d01a78df37b1f5843298) converted to DEX by itself, with its resources"
+  },
+  "ref-app-classes.jar": {
+   "sha256": "f03af011dd5944c39338b2a7f59a093b6c4747f52da487586aafe991c21d0257",
+   "bytes": 9797,
+   "what": "the Compose sample compiled on the desktop by the official kotlinc 2.4.0 + Compose plugin (input of P2)"
+  },
+  "res-smoke.zip": {
+   "sha256": "0773980f955cc09cb7a442bebc61ce5ea0eb7b421f939aa020f214839118727b",
+   "bytes": 5320,
+   "what": "resource test project (values, styles, layouts, drawables, menus, xml, PNG)"
+  },
+  "sample-compose.zip": {
+   "sha256": "42b7adeda72ce12113fea3eb7afc733c83c64b4b427fd96241b20b02c753620d",
+   "bytes": 1680,
+   "what": "Compose + Material 3 sample (MainActivity.kt and its manifest)"
+  }
+ },
+ "expected": {
+  "p1": {
+   "classes": {
+    "org/apkbuilder/probe/compose/MainActivityKt.class": "36c30d107191dbaf87f24d196404240cc1a6ac46ffa56bfe6958bb2ae420fb2f",
+    "org/apkbuilder/probe/compose/ComposableSingletons$MainActivityKt.class": "c0c6a3c659ab4ce41fd69abc0af07cef104ce7c8e853bb9afaa668ffbef62f36",
+    "org/apkbuilder/probe/compose/MainActivity.class": "b13fdba815317a94c4292f2eaaf87ddd09b4b378e24ec1db3fc787e348c961f8",
+    "META-INF/main.kotlin_module": "6bfb5951ded2cffd3aca92754c601acd5be591536774e89d45504331dba15bd7"
+   },
+   "control_with_plugin": {
+    "org/apkbuilder/probe/compose/control/ControlKt.class": "57ac6657bfb1897f2fb27874f902ac0590c97741b6eaf59c460188d15d6974e2",
+    "META-INF/main.kotlin_module": "8799a440efbdc8246e809918fab8862173db9f9b9fde83e9d17fe8488f179335"
+   },
+   "control_without_plugin": {
+    "org/apkbuilder/probe/compose/control/ControlKt.class": "4446e33dbfb3359883517c296ad52d85dca65f06a3766161457fb4aa335e145e",
+    "META-INF/main.kotlin_module": "8799a440efbdc8246e809918fab8862173db9f9b9fde83e9d17fe8488f179335"
+   }
+  },
+  "p2": {
+   "app_dex": {
+    "classes.dex": "0b3ec3f15d0af3939a4be9c5a9dc7aadb354984ea39d12f4ad7500d52f6d7699"
+   },
+   "lambda_result": "add=12 sorted=DELTA,BRAVO,ALPHA,CHARLIE square=2.25 log=[open a, open b, body, close b, close a] ex=body+close b+close a",
+   "lambda_dex": {
+    "classes.dex": "e19ecc770ad212cf1c829c8d8b71c68904e70c20eadd888473c24b9a83c3d1c1"
+   },
+   "merged": {
+    "classes3.dex": "026d7d7159106c9bc230fa48c960f998fc647d0affcadf56eaadf6a82aee0315",
+    "classes2.dex": "95571eff155e8abe3779680c55effb177cca653368c49e8cc890c91e6e436f42",
+    "classes.dex": "d295861590ab1fd519a58d2f0a6c1ad1abda130691f1d7c59c553b82434f7221"
+   }
+  },
+  "p3": {
+   "aapt2_sha256": "1574542e1737a2b0d5d05ee7265fd22fe50b81528f0541a2e7e672530ead637e",
+   "smoke_arsc_sha256": "24ae78521591c34fdb90199aa853d6c6f52dbea2b17a57a4394531f2a39e386a",
+   "smoke_rtxt_sha256": "3e8ebc4da7e86f1dd5a42f67dccdf9a2d72c4c314680307e0b8c23db7181a420",
+   "libs_arsc_sha256": "ea63a755f807b0c5a47d322fe8d429f9ac7cbe2fe86b3b8a7949c99962dab3f4",
+   "libs_rtxt_sha256": "9871d852107b1a96c7069c0908a45f5038262c1114e7f4cfe7b3fc7064fbff10",
+   "libs_modules": 49
+  }
+ },
+ "tools": {
+  "kotlinc": "2.4.0-release-281",
+  "r8_jar_sha256": "7c7b67be3069d395cdfbdea4799ffd04d75d81ccecf3d01a78df37b1f5843298",
+  "aapt2_host_sha256": "963d925eb71d3ffcc9c51db58009af334bc08b85041c2f05d3b24eadd944ff52",
+  "d8_min_api": 29
+ }
+}

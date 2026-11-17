@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  APK Builder 005 feasibility probe. A disposable test app: no permissions at all (no network, no storage;
+  results leave only through Android's document picker or the clipboard), no services, receivers or providers.
+  The Code on the Go log sender and debugger additions are removed exactly as in APK Builder 004 (see 004's
+  manifest for the full explanation): the log sender's provider would crash the app at start-up on Android 12+,
+  and the debugger plugin would otherwise add INTERNET.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" android:maxSdkVersion="1" tools:node="replace" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" tools:node="remove" />
+    <uses-permission android:name="com.itsaky.androidide.permission.BIND_LOG_SERVICE" tools:node="remove" />
+
+    <application
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:fullBackupContent="false"
+        android:icon="@drawable/ic_probe"
+        android:label="APK Builder 005 Probe"
+        android:largeHeap="true"
+        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="com.itsaky.androidide.logsender.utils.LogSenderInstaller"
+            android:authorities="${applicationId}.logsender-installer"
+            tools:node="remove" />
+        <service
+            android:name="com.itsaky.androidide.logsender.LogSenderService"
+            tools:node="remove" />
+    </application>
+</manifest>

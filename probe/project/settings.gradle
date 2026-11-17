@@ -1,0 +1,24 @@
+// APK Builder 005 feasibility probe (Stage 1, disposable). Same Gradle set-up as APK Builder 004, so that
+// Code on the Go builds it offline exactly as it builds Build 004. Groovy DSL, Java only, no AndroidX,
+// no dependencies: every tool under test ships inside app/src/main/assets/probe and app/src/main/jniLibs.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    plugins {
+        id 'com.android.application' version "${agpVersion}"
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'ApkBuilder005Probe'
+include ':app'

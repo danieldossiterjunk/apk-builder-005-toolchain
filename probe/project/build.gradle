@@ -1,0 +1,15 @@
+// Root build file (copied from APK Builder 004): the Kotlin Gradle plugin is pinned to the version Code on
+// the Go carries offline, because AGP 9 depends on it even for a Java-only project. No Kotlin is compiled here.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}"
+    }
+}
+
+plugins {
+    id 'com.android.application' apply false
+}

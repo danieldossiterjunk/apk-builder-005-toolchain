@@ -1,0 +1,2 @@
+The other input files of this folder are not kept in git (about 140 MB). probe/prepare_assets.py makes them,
+with the hashes listed in MANIFEST.json, from the CI releases named in probe/project/README.md.
