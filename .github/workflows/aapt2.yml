@@ -40,7 +40,7 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends ninja-build zstd clang lld file
+          sudo apt-get install -y -q --no-install-recommends ninja-build zstd clang lld file libc++-18-dev libc++abi-18-dev
           mkdir -p out
           { cmake --version | head -1; clang --version | head -1; ninja --version; } | tee out/host-tools.txt
       - name: Source snapshot (pinned SHA-256)
@@ -65,7 +65,8 @@ jobs:
         continue-on-error: true
         run: |
           cmake -GNinja -S aapt2 -B build/host -DAOSP_SRC=$PWD/aosp/src -DPROTOC=$PWD/build/protoc/protobuf/protoc \
-            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld > out/host-configure.txt 2>&1 || { tail -60 out/host-configure.txt; exit 1; }
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS=-stdlib=libc++ \
+            "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -static-libstdc++ -fuse-ld=lld" > out/host-configure.txt 2>&1 || { tail -60 out/host-configure.txt; exit 1; }
           cmake --build build/host --target aapt2 -j 4 -- -k 0 > out/host-build.txt 2>&1 || { grep -E -m40 -A6 'error:|undefined' out/host-build.txt; exit 1; }
           cp build/host/aapt2 out/aapt2-linux-x86_64
           python3 -I aapt2/stamp_build_number.py out/aapt2-linux-x86_64 "apkbuilder005-$AOSP_TAG-linux-x86_64"

@@ -5,6 +5,7 @@
 # include directories, compile definitions, generated headers and the link order.
 #
 #   cmake -S aapt2 -B build -DAOSP_SRC=<dir with base/, core/, libbase/, ...> -DPROTOC=<host protoc>
+#         [desktop: -DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS="-stdlib=libc++ -static-libstdc++"]
 #         [-DCMAKE_TOOLCHAIN_FILE=<ndk>/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a
 #          -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static]
 #
@@ -38,6 +39,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+if(NOT ANDROID AND NOT CMAKE_CXX_FLAGS MATCHES "stdlib=libc\\+\\+")
+    message(WARNING "desktop build without -stdlib=libc++: AOSP code expects LLVM's C++ library; pass "
+                    "-DCMAKE_CXX_FLAGS=-stdlib=libc++ (and -stdlib=libc++ -static-libstdc++ for the linker)")
+endif()
 if(ANDROID)
     set(VARIANT android)
     if(NOT ANDROID_STL STREQUAL "c++_static")
@@ -160,10 +165,18 @@ if(NOT ANDROID)
     list(APPEND AOSP_CXX_FLAGS "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-constexpr>")
 endif()
 
+# aosp_lib(<name> [NO_PRELUDE] [extra sources...]): a static library from the generated <name>_SRCS list
 function(aosp_lib name)
-    add_library(${name} STATIC ${${name}_SRCS} ${ARGN})
+    set(extra ${ARGN})
+    set(flags ${AOSP_CXX_FLAGS})
+    list(FIND extra NO_PRELUDE np)
+    if(np GREATER -1)
+        list(REMOVE_AT extra ${np})
+        set(flags)
+    endif()
+    add_library(${name} STATIC ${${name}_SRCS} ${extra})
     target_include_directories(${name} PRIVATE ${AOSP_INCLUDES})
-    target_compile_options(${name} PRIVATE -Wno-unused-parameter -Wno-missing-field-initializers ${AOSP_CXX_FLAGS})
+    target_compile_options(${name} PRIVATE -Wno-unused-parameter -Wno-missing-field-initializers ${flags})
 endfunction()
 
 # read-only aconfig flags (Soong generates this header from the release configuration)
@@ -176,7 +189,8 @@ if(NOT rc EQUAL 0)
 endif()
 
 # ---------------------------------------------------------------- AOSP libraries
-aosp_lib(libbase)
+# no prelude: posix_strerror_r.cpp undefines _GNU_SOURCE before its first include to get the POSIX strerror_r
+aosp_lib(libbase NO_PRELUDE)
 target_link_libraries(libbase PRIVATE fmt::fmt)
 
 aosp_lib(liblog)
@@ -241,6 +255,7 @@ set(AAPT2_FLAGS -Wno-unused-parameter -Wno-missing-field-initializers -fno-excep
                 -Wno-deprecated-declarations)
 add_library(libaapt2 STATIC ${libaapt2_SRCS} ${AAPT2_PB_SRCS})
 target_include_directories(libaapt2 PUBLIC ${S}/base/tools/aapt2 ${PROTO_OUT} ${PROTO_OUT}/frameworks/base/tools/aapt2
+                           ${S}/protobuf/third_party/utf8_range
                            PRIVATE ${AOSP_INCLUDES} ${S}/libpng ${CMAKE_BINARY_DIR}/libpng)
 target_compile_options(libaapt2 PRIVATE ${AAPT2_FLAGS} ${AOSP_CXX_FLAGS})
 target_link_libraries(libaapt2 PUBLIC protobuf::libprotobuf-lite expat::expat png_static)
