@@ -201,6 +201,9 @@ if(ANDROID)
     # newest level. Declaring unavailable symbols weak lets liblog compile its own definitions.
     target_compile_definitions(liblog PRIVATE __ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__)
     target_compile_options(liblog PRIVATE -Wno-unguarded-availability -Wno-unguarded-availability-new)
+    # abseil's logging adds a literal -llog on Android (the NDK has only liblog.so, no static liblog); naming this
+    # static liblog "liblog.a" in a directory on the link path makes -llog resolve to it
+    set_target_properties(liblog PROPERTIES OUTPUT_NAME log ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/aosp-liblog)
 endif()
 
 aosp_lib(libcutils)
@@ -274,6 +277,7 @@ target_link_options(aapt2 PRIVATE -Wl,--gc-sections -Wl,-Map=${CMAKE_BINARY_DIR}
 if(ANDROID)
     # fully static: runs from the app's native library directory with nothing else
     target_link_options(aapt2 PRIVATE -static)
+    target_link_directories(aapt2 PRIVATE ${CMAKE_BINARY_DIR}/aosp-liblog)
     # 16 KiB pages (Android 15+ devices may use them); NDK r28+ defaults to this, stated here for the record
     target_link_options(aapt2 PRIVATE -Wl,-z,max-page-size=16384)
 endif()
