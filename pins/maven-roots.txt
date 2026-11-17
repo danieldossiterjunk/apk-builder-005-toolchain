@@ -22,7 +22,7 @@ androidx.constraintlayout:constraintlayout:2.2.2
 androidx.fragment:fragment-ktx:1.9.1
 com.google.android.material:material:1.14.0
 
-# Cross-check only: versions the Compose BOM recommends
+# The Compose BOM, used as Gradle uses a platform(...) dependency
 bom androidx.compose:compose-bom:2026.09.00   # applied as a platform (raises the Compose modules it lists) and cross-checked
 
 # Tools, single artifacts: D8/R8 (BSD-3-Clause) and ASM for StubGen (BSD-3-Clause)
